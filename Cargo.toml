@@ -1,0 +1,13 @@
+[package]
+name = "kenagen"
+version = "0.1.0"
+edition = "2021"
+description = "A Yamaha-style keyboard emulator played on a standard computer keyboard"
+publish = false
+
+[dependencies]
+anyhow = "1"
+cpal = "0.17"
+
+[build-dependencies]
+pkg-config = "0.3"
