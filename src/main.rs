@@ -1,41 +1,36 @@
 //! Kenagen — a Yamaha-style keyboard emulator played on a computer keyboard.
 //!
-//! This binary is currently the engine proof of concept: it brings up the audio
-//! engine and plays a few test notes to confirm that `note_on` starts sound and
-//! `note_off` actually stops it.
-
-mod engine;
-
-use std::thread::sleep;
-use std::time::Duration;
+//! Currently the playable right hand: the melody zone. Left-hand chords, the
+//! metronome, and auto-accompaniment styles come next.
 
 use anyhow::Result;
+use evdev::KeyCode;
 
-use engine::Engine;
+use kenagen::engine::Engine;
+use kenagen::input::{self, KeyEvent};
+use kenagen::melody::Melody;
 
 fn main() -> Result<()> {
-    println!("kenagen — engine proof of concept");
+    println!("kenagen");
 
     let engine = Engine::new()?;
+    let mut melody = Melody::new();
+    let events = input::keyboards()?;
 
-    // Test 1: a held note. Proves note_on starts sound and, crucially, that
-    // note_off stops it — the teshura piano project's bug was that releasing a
-    // key never stopped the note.
-    println!("  middle C — hold 1s, then release (expect silence after)");
-    engine.note_on(0, 60, 100);
-    sleep(Duration::from_millis(1000));
-    engine.note_off(0, 60);
-    sleep(Duration::from_millis(700));
+    println!();
+    println!("  melody   H J K L ; '   N M , . /     (C C# D D# E F  F# G G# A A#)");
+    println!("  octave   ]  up      \\  down");
+    println!("  quit     ESC");
+    println!();
 
-    // Test 2: a short C-major arpeggio.
-    println!("  C major arpeggio");
-    for &key in &[60u8, 64, 67, 72] {
-        engine.note_on(0, key, 100);
-        sleep(Duration::from_millis(220));
-        engine.note_off(0, key);
+    for event in events {
+        match event {
+            KeyEvent::Pressed(KeyCode::KEY_ESC) => break,
+            KeyEvent::Pressed(key) => melody.handle(key, true, &engine),
+            KeyEvent::Released(key) => melody.handle(key, false, &engine),
+        }
     }
-    sleep(Duration::from_millis(400));
 
-    println!("done — engine works.");
+    println!("bye.");
     Ok(())
 }

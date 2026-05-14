@@ -22,6 +22,7 @@ const DEFAULT_SOUNDFONT: &str = "/usr/share/sounds/sf2/default-GM.sf2";
 
 pub struct Engine {
     synth: Arc<Synth>,
+    sfont_id: i32,
     _stream: cpal::Stream,
 }
 
@@ -45,7 +46,7 @@ impl Engine {
                 config.channels
             );
         }
-        let sample_rate = config.sample_rate.0;
+        let sample_rate = config.sample_rate;
 
         let synth = Arc::new(Synth::new(sample_rate)?);
         let soundfont = soundfont_path();
@@ -70,6 +71,7 @@ impl Engine {
         );
         Ok(Engine {
             synth,
+            sfont_id,
             _stream: stream,
         })
     }
@@ -82,6 +84,13 @@ impl Engine {
     /// Stop a note that was started with `note_on`.
     pub fn note_off(&self, chan: u8, key: u8) {
         self.synth.note_off(chan, key);
+    }
+
+    /// Select the instrument voice for a MIDI channel — a bank/preset within
+    /// the loaded soundfont. In General MIDI, bank 0 preset 0 is Acoustic Grand
+    /// Piano and preset 48 is String Ensemble 1.
+    pub fn select_program(&self, chan: u8, bank: u32, preset: u32) -> Result<()> {
+        self.synth.program_select(chan, self.sfont_id, bank, preset)
     }
 }
 
