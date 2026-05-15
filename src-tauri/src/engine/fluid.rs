@@ -6,7 +6,7 @@
 //! `build.rs` via pkg-config.
 
 use std::ffi::CString;
-use std::os::raw::{c_char, c_double, c_int, c_void};
+use std::os::raw::{c_char, c_double, c_float, c_int, c_void};
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
@@ -50,6 +50,10 @@ extern "C" {
     ) -> c_int;
     fn fluid_synth_noteon(synth: *mut FluidSynth, chan: c_int, key: c_int, vel: c_int) -> c_int;
     fn fluid_synth_noteoff(synth: *mut FluidSynth, chan: c_int, key: c_int) -> c_int;
+    fn fluid_synth_cc(synth: *mut FluidSynth, chan: c_int, num: c_int, val: c_int) -> c_int;
+    fn fluid_synth_set_gain(synth: *mut FluidSynth, gain: c_float);
+    fn fluid_synth_pitch_bend(synth: *mut FluidSynth, chan: c_int, val: c_int) -> c_int;
+    fn fluid_synth_pitch_wheel_sens(synth: *mut FluidSynth, chan: c_int, val: c_int) -> c_int;
     fn fluid_synth_write_float(
         synth: *mut FluidSynth,
         len: c_int,
@@ -133,6 +137,29 @@ impl Synth {
     /// playing, which is harmless here, so the result is ignored.
     pub fn note_off(&self, chan: u8, key: u8) {
         unsafe { fluid_synth_noteoff(self.synth, chan as c_int, key as c_int) };
+    }
+
+    /// Send a MIDI control change. CC 7 is channel volume (0-127).
+    pub fn cc(&self, chan: u8, num: u8, val: u8) {
+        unsafe { fluid_synth_cc(self.synth, chan as c_int, num as c_int, val as c_int) };
+    }
+
+    /// Master output gain. FluidSynth accepts 0.0-10.0 (default 0.2 in the
+    /// library; we start at 0.6 in settings to leave clipping headroom).
+    pub fn set_gain(&self, gain: f32) {
+        unsafe { fluid_synth_set_gain(self.synth, gain) };
+    }
+
+    /// Pitch bend on a channel. MIDI pitch bend is 14-bit (0..16383) centred
+    /// on 8192 — values below center bend down, above bend up.
+    pub fn pitch_bend(&self, chan: u8, val: u16) {
+        unsafe { fluid_synth_pitch_bend(self.synth, chan as c_int, val as c_int) };
+    }
+
+    /// Pitch-bend wheel sensitivity in semitones (typical 2..=12). Affects how
+    /// far a full-scale pitch-bend value (8192) actually moves the pitch.
+    pub fn pitch_wheel_sens(&self, chan: u8, semitones: u8) {
+        unsafe { fluid_synth_pitch_wheel_sens(self.synth, chan as c_int, semitones as c_int) };
     }
 
     /// Fill an interleaved stereo `[L, R, L, R, ...]` f32 buffer with synth

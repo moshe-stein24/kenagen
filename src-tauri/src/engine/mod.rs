@@ -14,7 +14,7 @@ use std::sync::Arc;
 use anyhow::{bail, Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
-use fluid::Synth;
+pub use fluid::Synth;
 
 /// Default General MIDI soundfont shipped on Ubuntu. Override with the
 /// `KENAGEN_SOUNDFONT` environment variable.
@@ -91,6 +91,29 @@ impl Engine {
     /// Piano and preset 48 is String Ensemble 1.
     pub fn select_program(&self, chan: u8, bank: u32, preset: u32) -> Result<()> {
         self.synth.program_select(chan, self.sfont_id, bank, preset)
+    }
+
+    /// Set a MIDI channel's volume (CC 7, 0-127). Scales how loud notes played
+    /// on this channel sound, independently of velocity.
+    pub fn set_channel_volume(&self, chan: u8, value: u8) {
+        self.synth.cc(chan, 7, value.min(127));
+    }
+
+    /// Master output gain. We start at 0.6 to leave headroom for chord + style
+    /// mixing; the UI can push it back up.
+    pub fn set_master_gain(&self, gain: f32) {
+        self.synth.set_gain(gain.clamp(0.0, 10.0));
+    }
+
+    /// Apply pitch-bend wheel sensitivity to a channel (1..=12 semitones).
+    pub fn set_pitch_bend_range(&self, chan: u8, semitones: u8) {
+        self.synth.pitch_wheel_sens(chan, semitones.clamp(1, 12));
+    }
+
+    /// Borrow the shared synth handle. The Tauri commands take a clone so they
+    /// can call CC/gain/pitch bend from the UI thread.
+    pub fn synth(&self) -> Arc<Synth> {
+        Arc::clone(&self.synth)
     }
 }
 

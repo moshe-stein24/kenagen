@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kenagen</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <section class="top">
+      <header>
+        <h1>Kenagen</h1>
+        <span class="tag">YM keyboard emulator</span>
+      </header>
+
+      <div class="layout">
+        <div class="side-panel side-left" aria-label="styles">
+          <div class="side-header">Styles</div>
+          <div class="side-content">—</div>
+        </div>
+
+        <div class="center-column">
+          <div class="central-display">
+            <!-- default view: melody readout in center, chord pill bottom-left -->
+            <div class="display-view" id="view-default">
+              <div class="melody-panel">
+                <div class="label">melody</div>
+                <div id="held-notes" class="held-notes empty">—</div>
+                <div class="octave">octave shift: <span id="octave-shift">0</span></div>
+              </div>
+              <div class="chord-pill chord-symbol-bg none" id="chord-symbol-bg">
+                <span class="chord-symbol empty" id="chord-symbol">—</span>
+              </div>
+            </div>
+
+            <!-- settings view: opens when Function is pressed -->
+            <div class="display-view" id="view-settings" hidden>
+              <div class="settings-header">Settings · Volumes</div>
+              <div class="vol-grid">
+                <label for="vol-melody">Melody</label>
+                <input type="range" id="vol-melody" min="0" max="100" value="100" />
+                <span class="vol-val" id="vol-melody-val">100%</span>
+
+                <label for="vol-chord">Chord</label>
+                <input type="range" id="vol-chord" min="0" max="100" value="55" />
+                <span class="vol-val" id="vol-chord-val">55%</span>
+
+                <label for="vol-styles">Styles</label>
+                <input type="range" id="vol-styles" min="0" max="100" value="90" />
+                <span class="vol-val" id="vol-styles-val">90%</span>
+
+                <label for="vol-master">Master</label>
+                <input type="range" id="vol-master" min="0" max="100" value="60" />
+                <span class="vol-val" id="vol-master-val">60%</span>
+
+                <label for="sens-pitch">Pitch bend range</label>
+                <input type="range" id="sens-pitch" min="1" max="12" value="2" />
+                <span class="vol-val" id="sens-pitch-val">2 st</span>
+              </div>
+              <div class="settings-divider"></div>
+
+              <div class="settings-header">Chord-section layout</div>
+              <div class="chord-map-hint">
+                Press a physical key to highlight it · Click a key to cycle its chord
+              </div>
+              <div class="chord-map-grid" id="chord-map-grid"></div>
+
+              <div class="settings-actions">
+                <button class="reset-btn" id="reset-btn">↺ Factory reset</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="registration-row" aria-label="registration memory">
+            <button class="reg-btn" data-reg="1">1</button>
+            <button class="reg-btn" data-reg="2">2</button>
+            <button class="reg-btn" data-reg="3">3</button>
+            <button class="reg-btn" data-reg="4">4</button>
+            <button class="reg-btn" data-reg="5">5</button>
+            <button class="reg-btn" data-reg="6">6</button>
+            <button class="reg-btn" data-reg="7">7</button>
+            <button class="reg-btn" data-reg="8">8</button>
+          </div>
+
+          <div class="function-bar">
+            <button class="function-btn" id="function-btn">⚙ Function</button>
+          </div>
+        </div>
+
+        <div class="side-panel side-right" aria-label="voices">
+          <div class="side-header">Voices</div>
+          <div class="side-content">—</div>
+        </div>
+      </div>
+
+      <div class="hint">
+        <div><kbd>H J K L ; '</kbd> &nbsp;and&nbsp; <kbd>N M , . /</kbd> &nbsp;— melody (C through A#)</div>
+        <div><kbd>A B C D E F G</kbd> &nbsp;and&nbsp; <kbd>W V R T Y</kbd> &nbsp;— chord roots &nbsp;·&nbsp; <kbd>Alt</kbd> 7 &nbsp; <kbd>Alt+Shift</kbd> m7 &nbsp; <kbd>Ctrl</kbd> minor &nbsp; <kbd>Ctrl+Shift</kbd> m7 &nbsp; <kbd>Ctrl+Shift+Alt</kbd> mM7</div>
+        <div><kbd>]</kbd> octave up &nbsp; <kbd>\</kbd> octave down &nbsp; <kbd>Esc</kbd> quit</div>
+      </div>
+
+      <footer id="status">starting…</footer>
+    </section>
+
+    <section class="keyboard-panel" aria-label="piano keyboard">
+      <div class="wheels">
+        <div class="mod-wheel" id="pitch-wheel" title="Pitch bend — mouse scroll wheel">
+          <div class="mod-wheel-track pitch-track">
+            <div class="mod-wheel-handle" id="pitch-wheel-handle"></div>
+          </div>
+          <div class="mod-wheel-label">Pitch</div>
+        </div>
+        <div class="mod-wheel" id="mod-wheel" title="Modulation — drag with the mouse">
+          <div class="mod-wheel-track">
+            <div class="mod-wheel-handle" id="mod-wheel-handle"></div>
+          </div>
+          <div class="mod-wheel-label">Mod</div>
+        </div>
+      </div>
+      <div class="piano" id="piano"></div>
+    </section>
+
+    <!-- factory reset confirmation -->
+    <div class="dialog-backdrop" id="reset-backdrop" hidden>
+      <div class="dialog" role="dialog" aria-modal="true">
+        <h2>Factory reset?</h2>
+        <div class="dialog-hint">This deletes saved settings and all 8 registration banks.</div>
+        <div class="dialog-buttons">
+          <button id="reset-yes" class="primary danger">Reset</button>
+          <button id="reset-no">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- save settings dialog -->
+    <div class="dialog-backdrop" id="save-backdrop" hidden>
+      <div class="dialog" role="dialog" aria-modal="true">
+        <h2>Save settings?</h2>
+        <div class="dialog-hint">← → to choose · Enter to select</div>
+        <div class="dialog-buttons">
+          <button id="save-yes" class="primary">Yes</button>
+          <button id="save-no">No <span class="kbd-hint">(revert)</span></button>
+          <button id="save-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- quit dialog -->
+    <div class="dialog-backdrop" id="dialog-backdrop" hidden>
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+        <div class="dialog-phase" id="dialog-confirm">
+          <h2 id="dialog-title">Quit Kenagen?</h2>
+          <div class="dialog-hint">← → to choose · Enter to select</div>
+          <div class="dialog-buttons">
+            <button id="btn-yes" class="primary">Yes <kbd>Y</kbd></button>
+            <button id="btn-no">No <kbd>Esc</kbd></button>
+            <button id="btn-cancel-1">Cancel <kbd>C</kbd></button>
+          </div>
+        </div>
+        <div class="dialog-phase" id="dialog-countdown" hidden>
+          <h2>Shutting down in <span id="countdown-n">3</span>…</h2>
+          <div class="dialog-buttons">
+            <button id="btn-cancel">Cancel <kbd>C</kbd></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="main.js"></script>
+  </body>
+</html>
