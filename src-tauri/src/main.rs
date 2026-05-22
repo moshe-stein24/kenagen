@@ -10,7 +10,7 @@
 //! events instead of playing notes; the webview owns the dialog state machine
 //! and calls back into Rust via the `quit_app` / `resume_play` commands.
 
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use anyhow::Result;
@@ -44,6 +44,8 @@ struct AppState {
     /// Signals the instrument thread to refresh chord voicing after a remap
     /// (so notes that were already held get re-resolved against the new map).
     chord_refresh: Arc<std::sync::atomic::AtomicBool>,
+    /// Whether the 12-note keyboard melody plays. Toggled from the Function menu.
+    melody_enabled: Arc<AtomicBool>,
 }
 
 #[tauri::command]
@@ -54,6 +56,14 @@ fn quit_app(app: AppHandle) {
 #[tauri::command]
 fn resume_play(state: State<'_, AppState>) {
     state.mode.store(MODE_PLAY, Ordering::Relaxed);
+}
+
+/// Called from the webview when any blocking dialog opens (save, factory
+/// reset). Switches the keyboard event loop into MODE_DIALOG so letter keys
+/// don't play notes while the dialog awaits a choice.
+#[tauri::command]
+fn enter_dialog_mode(state: State<'_, AppState>) {
+    state.mode.store(MODE_DIALOG, Ordering::Relaxed);
 }
 
 /// Update a named output's volume. `percent` is 0..=100 from the UI slider.
@@ -126,6 +136,13 @@ fn set_chord_key(state: State<'_, AppState>, key_code: u16, pitch_class: Option<
         .store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Enable or disable the 12-note keyboard melody. Toggled from the Function
+/// menu; persisted with the other settings.
+#[tauri::command]
+fn set_melody_enabled(state: State<'_, AppState>, enabled: bool) {
+    state.melody_enabled.store(enabled, Ordering::Relaxed);
+}
+
 /// Persist the supplied settings to ~/.config/kenagen/settings.json. The
 /// chord_map field is taken from the live runtime map (not from `new_settings`)
 /// so the on-disk copy always matches what the user has been editing.
@@ -136,6 +153,7 @@ fn save_settings(state: State<'_, AppState>, new_settings: Settings) -> Result<(
         volumes: new_settings.volumes,
         sensitivity: new_settings.sensitivity,
         chord_map: settings::chord_map_from_hashmap(&live_chord_map),
+        melody_enabled: new_settings.melody_enabled,
     };
     settings::save_settings(&full).map_err(|e| e.to_string())
 }
@@ -149,6 +167,7 @@ fn factory_reset(state: State<'_, AppState>, app: AppHandle) -> Result<(), Strin
     let defaults = Settings::default();
     apply_settings(&state, &defaults);
     *state.chord_map.write().unwrap() = chords::default_root_map();
+    state.melody_enabled.store(true, Ordering::Relaxed);
     state
         .chord_refresh
         .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -172,32 +191,44 @@ fn apply_settings(state: &State<'_, AppState>, s: &Settings) {
 fn main() {
     let mode = Arc::new(AtomicU8::new(MODE_PLAY));
     let chord_map: SharedChordMap = Arc::new(RwLock::new(chords::default_root_map()));
-    let chord_refresh = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let chord_refresh = Arc::new(AtomicBool::new(false));
+    let melody_enabled = Arc::new(AtomicBool::new(true));
     tauri::Builder::default()
         .manage(AppState {
             mode: Arc::clone(&mode),
             synth: Mutex::new(None),
             chord_map: Arc::clone(&chord_map),
             chord_refresh: Arc::clone(&chord_refresh),
+            melody_enabled: Arc::clone(&melody_enabled),
         })
         .invoke_handler(tauri::generate_handler![
             quit_app,
             resume_play,
+            enter_dialog_mode,
             set_volume,
             set_modulation,
             set_pitch_bend,
             set_pitch_bend_range,
             save_settings,
             factory_reset,
-            set_chord_key
+            set_chord_key,
+            set_melody_enabled
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
             let mode = Arc::clone(&mode);
             let chord_map = Arc::clone(&chord_map);
             let chord_refresh = Arc::clone(&chord_refresh);
+            let melody_enabled = Arc::clone(&melody_enabled);
+
             std::thread::spawn(move || {
-                if let Err(e) = run_instrument(handle.clone(), mode, chord_map, chord_refresh) {
+                if let Err(e) = run_instrument(
+                    handle.clone(),
+                    mode,
+                    chord_map,
+                    chord_refresh,
+                    melody_enabled,
+                ) {
                     eprintln!("instrument thread error: {e:#}");
                     let _ = handle.emit("status", format!("error: {e}"));
                 }
@@ -212,7 +243,8 @@ fn run_instrument(
     app: AppHandle,
     mode: Arc<AtomicU8>,
     chord_map: SharedChordMap,
-    chord_refresh: Arc<std::sync::atomic::AtomicBool>,
+    chord_refresh: Arc<AtomicBool>,
+    melody_enabled: Arc<AtomicBool>,
 ) -> Result<()> {
     let engine = Engine::new()?;
     engine.select_program(CHORD_CHANNEL, 0, CHORD_PRESET)?;
@@ -230,6 +262,7 @@ fn run_instrument(
         apply_settings(&state, &loaded);
     }
     *chord_map.write().unwrap() = settings::chord_map_to_hashmap(&loaded.chord_map);
+    melody_enabled.store(loaded.melody_enabled, Ordering::Relaxed);
 
     let mut melody = Melody::new();
     let mut chords = Chords::new(Arc::clone(&chord_map));
@@ -238,7 +271,61 @@ fn run_instrument(
     let _ = app.emit("chord", json!(chords.state()));
     let _ = app.emit("settings", json!(loaded));
 
+    // Modifier state used to route numpad presses (down-arrow / up-arrow /
+    // soft-letter). Tracked independently of the chords module, which has its
+    // own modifier matrix for chord-quality detection.
+    let mut alt_held = false;
+    let mut shift_held = false;
+    // Locks each numpad key to the role it had at press time so the release
+    // emits the matching off-event even if modifiers changed mid-hold.
+    let mut numpad_roles: std::collections::HashMap<KeyCode, NumpadRole> =
+        std::collections::HashMap::new();
+
     for event in events {
+        match &event {
+            KeyEvent::Pressed(KeyCode::KEY_LEFTALT)
+            | KeyEvent::Pressed(KeyCode::KEY_RIGHTALT) => alt_held = true,
+            KeyEvent::Released(KeyCode::KEY_LEFTALT)
+            | KeyEvent::Released(KeyCode::KEY_RIGHTALT) => alt_held = false,
+            KeyEvent::Pressed(KeyCode::KEY_LEFTSHIFT)
+            | KeyEvent::Pressed(KeyCode::KEY_RIGHTSHIFT) => shift_held = true,
+            KeyEvent::Released(KeyCode::KEY_LEFTSHIFT)
+            | KeyEvent::Released(KeyCode::KEY_RIGHTSHIFT) => shift_held = false,
+            _ => {}
+        }
+        // Tab is fully disabled — swallow press and release so it doesn't
+        // toggle the Function menu or move focus inside the webview.
+        if matches!(
+            &event,
+            KeyEvent::Pressed(KeyCode::KEY_TAB) | KeyEvent::Released(KeyCode::KEY_TAB)
+        ) {
+            continue;
+        }
+        // Alt+F4: open the quit-confirmation dialog, same as ESC. Do not exit
+        // immediately — the user must confirm.
+        if alt_held {
+            if let KeyEvent::Pressed(KeyCode::KEY_F4) = &event {
+                if mode.load(Ordering::Relaxed) == MODE_PLAY {
+                    mode.store(MODE_DIALOG, Ordering::Relaxed);
+                    for note in melody.release_all(&engine) {
+                        let _ = app.emit(
+                            "note",
+                            json!({
+                                "action": "off",
+                                "midi": note,
+                                "keycode": 0,
+                                "octave_shift": melody.octave_shift(),
+                            }),
+                        );
+                    }
+                    chords.release_all(&engine);
+                    let _ = app.emit("chord", json!(chords.state()));
+                    let _ = app.emit("request-quit", json!({}));
+                }
+                continue;
+            }
+        }
+
         let current_mode = mode.load(Ordering::Relaxed);
 
         match (current_mode, event) {
@@ -281,9 +368,39 @@ fn run_instrument(
                     let _ = app.emit("dialog-key", json!({ "key": a }));
                 }
             }
-            (MODE_DIALOG, KeyEvent::Released(_)) => {}
+            (MODE_DIALOG, KeyEvent::Released(key)) => {
+                // Let any notes that were already sounding finish cleanly;
+                // new presses are suppressed but releases stop their notes.
+                if let Some(me) = melody.handle(key, false, &engine) {
+                    emit_melody(&app, me, melody.octave_shift());
+                }
+                if chords.handle(key, false, &engine) {
+                    let _ = app.emit("chord", json!(chords.state()));
+                }
+            }
 
             (_, KeyEvent::Pressed(key)) => {
+                // Numpad routing — modifier state at press time picks the role:
+                //   no mods       → down-arrow soft button (nav-key dir=dn)
+                //   Shift         → up-arrow soft button   (nav-key dir=up)
+                //   Alt+Shift     → A-J soft letter        (soft-key)
+                // Role is locked for the duration of the press so the release
+                // emits the matching off-event even if modifiers change.
+                if is_numpad_digit(key) {
+                    let role = if alt_held && shift_held {
+                        numpad_letter(key).map(NumpadRole::Letter)
+                    } else if shift_held {
+                        numpad_index(key).map(NumpadRole::NavUp)
+                    } else {
+                        numpad_index(key).map(NumpadRole::NavDown)
+                    };
+                    if let Some(role) = role {
+                        numpad_roles.insert(key, role);
+                        emit_numpad(&app, role, true);
+                    }
+                    continue;
+                }
+
                 if chords::is_chord_section_key(key) {
                     let _ = app.emit(
                         "chord-section-key",
@@ -301,8 +418,10 @@ fn run_instrument(
                     }
                     _ => {}
                 }
-                if let Some(me) = melody.handle(key, true, &engine) {
-                    emit_melody(&app, me, melody.octave_shift());
+                if melody_enabled.load(Ordering::Relaxed) {
+                    if let Some(me) = melody.handle(key, true, &engine) {
+                        emit_melody(&app, me, melody.octave_shift());
+                    }
                 }
                 if chords.handle(key, true, &engine) {
                     let _ = app.emit("chord", json!(chords.state()));
@@ -313,6 +432,15 @@ fn run_instrument(
                 }
             }
             (_, KeyEvent::Released(key)) => {
+                // Numpad release: pick the role the key was pressed as,
+                // regardless of modifier state right now.
+                if is_numpad_digit(key) {
+                    if let Some(role) = numpad_roles.remove(&key) {
+                        emit_numpad(&app, role, false);
+                    }
+                    continue;
+                }
+
                 if chords::is_chord_section_key(key) {
                     let _ = app.emit(
                         "chord-section-key",
@@ -333,6 +461,88 @@ fn run_instrument(
         }
     }
     Ok(())
+}
+
+/// Role a numpad keypress is acting in for the lifetime of one press/release.
+/// Decided at press time based on Shift / Alt+Shift modifier state.
+#[derive(Clone, Copy)]
+enum NumpadRole {
+    /// Lower row of 8 soft buttons under MKD.
+    NavDown(u8),
+    /// Upper row of 8 soft buttons under MKD.
+    NavUp(u8),
+    /// A-J soft buttons running down the left/right edges of MKD.
+    Letter(&'static str),
+}
+
+fn emit_numpad(app: &AppHandle, role: NumpadRole, pressed: bool) {
+    match role {
+        NumpadRole::NavDown(idx) => {
+            let _ = app.emit(
+                "nav-key",
+                json!({ "index": idx, "direction": "dn", "pressed": pressed }),
+            );
+        }
+        NumpadRole::NavUp(idx) => {
+            let _ = app.emit(
+                "nav-key",
+                json!({ "index": idx, "direction": "up", "pressed": pressed }),
+            );
+        }
+        NumpadRole::Letter(letter) => {
+            let _ = app.emit("soft-key", json!({ "letter": letter, "pressed": pressed }));
+        }
+    }
+}
+
+/// True for any numpad digit (KP0..KP9), regardless of NumLock state.
+fn is_numpad_digit(key: KeyCode) -> bool {
+    matches!(
+        key,
+        KeyCode::KEY_KP0
+            | KeyCode::KEY_KP1
+            | KeyCode::KEY_KP2
+            | KeyCode::KEY_KP3
+            | KeyCode::KEY_KP4
+            | KeyCode::KEY_KP5
+            | KeyCode::KEY_KP6
+            | KeyCode::KEY_KP7
+            | KeyCode::KEY_KP8
+            | KeyCode::KEY_KP9
+    )
+}
+
+/// Map numpad KP1..KP8 to nav-button index 1..8. KP9 / KP0 return None — the
+/// arrow rows under MKD only have 8 slots.
+fn numpad_index(key: KeyCode) -> Option<u8> {
+    Some(match key {
+        KeyCode::KEY_KP1 => 1,
+        KeyCode::KEY_KP2 => 2,
+        KeyCode::KEY_KP3 => 3,
+        KeyCode::KEY_KP4 => 4,
+        KeyCode::KEY_KP5 => 5,
+        KeyCode::KEY_KP6 => 6,
+        KeyCode::KEY_KP7 => 7,
+        KeyCode::KEY_KP8 => 8,
+        _ => return None,
+    })
+}
+
+/// Map a numpad digit to one of the 10 A-J soft buttons (KP1→A … KP9→I, KP0→J).
+fn numpad_letter(key: KeyCode) -> Option<&'static str> {
+    Some(match key {
+        KeyCode::KEY_KP1 => "A",
+        KeyCode::KEY_KP2 => "B",
+        KeyCode::KEY_KP3 => "C",
+        KeyCode::KEY_KP4 => "D",
+        KeyCode::KEY_KP5 => "E",
+        KeyCode::KEY_KP6 => "F",
+        KeyCode::KEY_KP7 => "G",
+        KeyCode::KEY_KP8 => "H",
+        KeyCode::KEY_KP9 => "I",
+        KeyCode::KEY_KP0 => "J",
+        _ => return None,
+    })
 }
 
 fn emit_melody(app: &AppHandle, ev: MelodyEvent, shift: i32) {

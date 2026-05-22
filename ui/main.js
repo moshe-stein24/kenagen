@@ -29,6 +29,10 @@ let chordKeyMap = new Map(); // u16 keycode → u8 pitch class
 const sensPitchEl = document.getElementById("sens-pitch");
 const sensPitchValEl = document.getElementById("sens-pitch-val");
 const resetBtn = document.getElementById("reset-btn");
+const melodyEnabledEl = document.getElementById("melody-enabled");
+
+// ENTER / EXIT buttons (right of DATA wheel) — mirror real-PSR behaviour.
+const exitBtn = document.getElementById("exit-btn");
 
 // Dialogs.
 const saveBackdrop = document.getElementById("save-backdrop");
@@ -61,7 +65,7 @@ const BLACK_PITCH_CLASSES = new Set([1, 3, 6, 8, 10]);
 const QUALITY_CLASSES = ["major", "minor", "dom7", "min7", "minmaj7"];
 
 function noteName(midi) {
-  return NOTE_NAMES[midi % 12] + (Math.floor(midi / 12) - 1);
+  return NOTE_NAMES[midi % 12] + (Math.floor(midi / 12) - 2);
 }
 
 /* ---------- piano rendering ---------- */
@@ -275,6 +279,7 @@ function readSettings() {
     volumes,
     sensitivity: { pitch_bend_semitones: Number(sensPitchEl.value) },
     chord_map,
+    melody_enabled: melodyEnabledEl.checked,
   };
 }
 
@@ -297,6 +302,10 @@ function applySettings(s) {
   }
   if (Array.isArray(s.chord_map)) {
     applyChordMap(s.chord_map);
+  }
+  if (typeof s.melody_enabled === "boolean") {
+    melodyEnabledEl.checked = s.melody_enabled;
+    invoke("set_melody_enabled", { enabled: s.melody_enabled }).catch(() => {});
   }
 }
 
@@ -344,6 +353,10 @@ sensPitchEl.addEventListener("input", () => {
   const st = Number(sensPitchEl.value);
   sensPitchValEl.textContent = `${st} st`;
   invoke("set_pitch_bend_range", { semitones: st }).catch(() => {});
+});
+
+melodyEnabledEl.addEventListener("change", () => {
+  invoke("set_melody_enabled", { enabled: melodyEnabledEl.checked }).catch(() => {});
 });
 
 /* ---------- chord-map mini-keyboard ---------- */
@@ -428,10 +441,13 @@ function pushChordMapToRust(target) {
 /* ---------- save-settings dialog ---------- */
 function openSaveDialog() {
   saveBackdrop.hidden = false;
-  saveYesBtn.focus();
+  auxFocusIndex = 0;
+  applyAuxFocus([saveYesBtn, saveNoBtn, saveCancelBtn]);
+  invoke("enter_dialog_mode").catch(() => {});
 }
 function closeSaveDialog() {
   saveBackdrop.hidden = true;
+  invoke("resume_play").catch(() => {});
 }
 saveYesBtn.addEventListener("click", () => {
   closeSaveDialog();
@@ -452,19 +468,23 @@ saveCancelBtn.addEventListener("click", () => {
 /* ---------- factory reset ---------- */
 resetBtn.addEventListener("click", () => {
   resetBackdrop.hidden = false;
-  resetYesBtn.focus();
+  auxFocusIndex = 0;
+  applyAuxFocus([resetYesBtn, resetNoBtn]);
+  invoke("enter_dialog_mode").catch(() => {});
 });
 resetYesBtn.addEventListener("click", () => {
   resetBackdrop.hidden = true;
   invoke("factory_reset").catch((err) => {
     statusEl.textContent = `reset failed: ${err}`;
   });
+  invoke("resume_play").catch(() => {});
   // After factory_reset, Rust emits a `settings` event; applySettings will
   // pick it up and refresh the sliders. Also drop any stale revert snapshot.
   snapshotSettings = null;
 });
 resetNoBtn.addEventListener("click", () => {
   resetBackdrop.hidden = true;
+  invoke("resume_play").catch(() => {});
 });
 
 /* ---------- quit dialog state machine ---------- */
@@ -591,6 +611,33 @@ listen("chord-section-key", (event) => {
   const btn = document.querySelector(`.chord-map-key[data-code="${code}"]`);
   if (btn) btn.classList.toggle("pressed", !!pressed);
 });
+
+// Alt+Shift+numpad → light the matching A-J soft button on the LCD frame.
+listen("soft-key", (event) => {
+  const { letter, pressed } = event.payload;
+  const btn = document.querySelector(`.soft-btn[data-soft="${letter}"]`);
+  if (btn) btn.classList.toggle("pressed", !!pressed);
+});
+
+// Numpad 1..8           → light the matching down-arrow under the MKD.
+// Shift + numpad 1..8   → light the matching up-arrow under the MKD.
+listen("nav-key", (event) => {
+  const { index, pressed, direction } = event.payload;
+  const dirClass = direction === "up" ? "nav-up" : "nav-dn";
+  const btn = document.querySelector(`.nav-btn.${dirClass}[data-nav="${index}"]`);
+  if (btn) btn.classList.toggle("pressed", !!pressed);
+});
+
+// ENTER on the panel is a visual indicator only — the physical Enter key on
+// the keyboard already covers every confirm action through dialog-key routing.
+
+// EXIT: dismiss any visible modal; in settings → close without saving.
+exitBtn.addEventListener("click", () => {
+  if (!saveBackdrop.hidden)  { closeSaveDialog(); closeSettings(false); return; }
+  if (!resetBackdrop.hidden) { resetBackdrop.hidden = true; return; }
+  if (!backdropEl.hidden)    { dismiss();          return; }
+  if (inSettings)            { closeSettings(false); return; }
+});
 listen("status", (event) => { statusEl.textContent = event.payload; });
 listen("request-quit", () => openDialog());
 
@@ -598,8 +645,44 @@ listen("settings", (event) => {
   applySettings(event.payload);
 });
 
+// Focus tracker shared by the save and factory-reset modals.
+let auxFocusIndex = 0;
+function applyAuxFocus(buttons) {
+  buttons.forEach((b, i) => b.classList.toggle("focused", i === auxFocusIndex));
+  if (buttons[auxFocusIndex]) buttons[auxFocusIndex].focus();
+}
+function navigateAux(buttons, delta) {
+  auxFocusIndex = (auxFocusIndex + delta + buttons.length) % buttons.length;
+  applyAuxFocus(buttons);
+}
+
 listen("dialog-key", (event) => {
   const key = event.payload.key;
+
+  // Save-settings dialog: [Yes (Y/Enter), No (N), Cancel (C/Esc)].
+  if (!saveBackdrop.hidden) {
+    const buttons = [saveYesBtn, saveNoBtn, saveCancelBtn];
+    if (key === "left" || key === "up")    return navigateAux(buttons, -1);
+    if (key === "right" || key === "down") return navigateAux(buttons,  1);
+    if (key === "enter")  return buttons[auxFocusIndex]?.click();
+    if (key === "y")      return saveYesBtn.click();
+    if (key === "n")      return saveNoBtn.click();
+    if (key === "c" || key === "esc") return saveCancelBtn.click();
+    return;
+  }
+
+  // Factory-reset dialog: [Reset (Y/Enter), Cancel (N/C/Esc)].
+  if (!resetBackdrop.hidden) {
+    const buttons = [resetYesBtn, resetNoBtn];
+    if (key === "left" || key === "up")    return navigateAux(buttons, -1);
+    if (key === "right" || key === "down") return navigateAux(buttons,  1);
+    if (key === "enter")  return buttons[auxFocusIndex]?.click();
+    if (key === "y")      return resetYesBtn.click();
+    if (key === "n" || key === "c" || key === "esc") return resetNoBtn.click();
+    return;
+  }
+
+  // Quit dialog (uses the existing phase state machine).
   if (key === "left" || key === "up") return navigate(-1);
   if (key === "right" || key === "down") return navigate(1);
   if (key === "enter") return activateFocused();

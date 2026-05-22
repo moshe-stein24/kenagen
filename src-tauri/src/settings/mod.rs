@@ -47,6 +47,9 @@ pub struct Settings {
     /// Missing in older saved files → falls back to the factory layout.
     #[serde(default = "default_chord_mappings")]
     pub chord_map: Vec<ChordKeyMapping>,
+    /// Whether the 12-note keyboard melody is active.
+    #[serde(default = "default_true")]
+    pub melody_enabled: bool,
 }
 
 impl Default for Settings {
@@ -62,6 +65,7 @@ impl Default for Settings {
                 pitch_bend_semitones: 2,
             },
             chord_map: default_chord_mappings(),
+            melody_enabled: true,
         }
     }
 }
@@ -74,6 +78,11 @@ pub fn default_chord_mappings() -> Vec<ChordKeyMapping> {
             pitch_class,
         })
         .collect()
+}
+
+/// serde default for `melody_enabled` — the 12-note melody is on by default.
+fn default_true() -> bool {
+    true
 }
 
 /// Materialize a chord map into the HashMap form the chord engine uses.

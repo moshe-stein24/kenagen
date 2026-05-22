@@ -14,63 +14,193 @@
       </header>
 
       <div class="layout">
-        <div class="side-panel side-left" aria-label="styles">
-          <div class="side-header">Styles</div>
-          <div class="side-content">—</div>
-        </div>
-
-        <div class="center-column">
-          <div class="central-display">
-            <!-- default view: melody readout in center, chord pill bottom-left -->
-            <div class="display-view" id="view-default">
-              <div class="melody-panel">
-                <div class="label">melody</div>
-                <div id="held-notes" class="held-notes empty">—</div>
-                <div class="octave">octave shift: <span id="octave-shift">0</span></div>
-              </div>
-              <div class="chord-pill chord-symbol-bg none" id="chord-symbol-bg">
-                <span class="chord-symbol empty" id="chord-symbol">—</span>
-              </div>
-            </div>
-
-            <!-- settings view: opens when Function is pressed -->
-            <div class="display-view" id="view-settings" hidden>
-              <div class="settings-header">Settings · Volumes</div>
-              <div class="vol-grid">
-                <label for="vol-melody">Melody</label>
-                <input type="range" id="vol-melody" min="0" max="100" value="100" />
-                <span class="vol-val" id="vol-melody-val">100%</span>
-
-                <label for="vol-chord">Chord</label>
-                <input type="range" id="vol-chord" min="0" max="100" value="55" />
-                <span class="vol-val" id="vol-chord-val">55%</span>
-
-                <label for="vol-styles">Styles</label>
-                <input type="range" id="vol-styles" min="0" max="100" value="90" />
-                <span class="vol-val" id="vol-styles-val">90%</span>
-
-                <label for="vol-master">Master</label>
-                <input type="range" id="vol-master" min="0" max="100" value="60" />
-                <span class="vol-val" id="vol-master-val">60%</span>
-
-                <label for="sens-pitch">Pitch bend range</label>
-                <input type="range" id="sens-pitch" min="1" max="12" value="2" />
-                <span class="vol-val" id="sens-pitch-val">2 st</span>
-              </div>
-              <div class="settings-divider"></div>
-
-              <div class="settings-header">Chord-section layout</div>
-              <div class="chord-map-hint">
-                Press a physical key to highlight it · Click a key to cycle its chord
-              </div>
-              <div class="chord-map-grid" id="chord-map-grid"></div>
-
-              <div class="settings-actions">
-                <button class="reset-btn" id="reset-btn">↺ Factory reset</button>
-              </div>
+        <!-- ============= LEFT BANK: Styles ============= -->
+        <aside class="side-bank side-left" aria-label="styles bank">
+          <div class="bank-section">
+            <div class="bank-header">Styles</div>
+            <div class="cat-grid" id="style-categories">
+              <button class="cat-btn">Pop</button>
+              <button class="cat-btn">Rock</button>
+              <button class="cat-btn">Ballad</button>
+              <button class="cat-btn">Dance</button>
+              <button class="cat-btn">Latin</button>
+              <button class="cat-btn">Jazz</button>
+              <button class="cat-btn">World</button>
+              <button class="cat-btn">Movie</button>
+              <button class="cat-btn">Country</button>
+              <button class="cat-btn">Trad</button>
+              <button class="cat-btn">March</button>
+              <button class="cat-btn">User</button>
             </div>
           </div>
 
+          <div class="bank-section">
+            <div class="bank-header">Style Control</div>
+            <div class="ctrl-grid">
+              <button class="ctrl-btn" data-ctrl="sync">SYNC</button>
+              <button class="ctrl-btn" data-ctrl="start">START</button>
+              <button class="ctrl-btn" data-ctrl="intro">INTRO</button>
+              <button class="ctrl-btn" data-ctrl="a">A</button>
+              <button class="ctrl-btn" data-ctrl="b">B</button>
+              <button class="ctrl-btn" data-ctrl="c">C</button>
+              <button class="ctrl-btn" data-ctrl="d">D</button>
+              <button class="ctrl-btn" data-ctrl="fill">FILL</button>
+              <button class="ctrl-btn" data-ctrl="break">BREAK</button>
+              <button class="ctrl-btn" data-ctrl="end">END</button>
+            </div>
+          </div>
+
+          <div class="bank-section ots-section">
+            <div class="bank-header">
+              OTS <span class="tempo">♩ = <span id="tempo-display">120</span></span>
+            </div>
+            <div class="ots-grid">
+              <button class="ots-btn">1</button>
+              <button class="ots-btn">2</button>
+              <button class="ots-btn">3</button>
+              <button class="ots-btn">4</button>
+            </div>
+          </div>
+        </aside>
+
+        <!-- ============= CENTER: MKD column ============= -->
+        <div class="mkd-column">
+          <div class="mkd-row">
+            <!-- Left soft-key column (A B C D E) — frames the LCD as on PSR-S770 -->
+            <div class="soft-col left" aria-label="left soft keys">
+              <button class="soft-btn" data-soft="A">A</button>
+              <button class="soft-btn" data-soft="B">B</button>
+              <button class="soft-btn" data-soft="C">C</button>
+              <button class="soft-btn" data-soft="D">D</button>
+              <button class="soft-btn" data-soft="E">E</button>
+            </div>
+
+            <!-- MKD = the sacred rectangle. Nothing may overflow or intrude. -->
+            <div class="mkd" id="mkd" aria-label="main keyboard display">
+              <!-- default view: chord pill + balance (LCD content). The note
+                   readout now lives in the small top-left indicator. -->
+              <div class="display-view" id="view-default">
+                <!-- MKD top bar — small indicators pinned top-left. POC: holds
+                     the note readout, moved out of the old centered melody
+                     panel; the tempo will join it here next. -->
+                <div class="mkd-topbar">
+                  <div class="note-indicator" aria-label="note indicator">
+                    <span class="note-indicator-label">note</span>
+                    <span id="held-notes" class="held-notes empty">—</span>
+                    <span class="note-indicator-octave">oct&nbsp;<span id="octave-shift">0</span></span>
+                  </div>
+                </div>
+                <div class="chord-pill chord-symbol-bg none" id="chord-symbol-bg">
+                  <span class="chord-symbol empty" id="chord-symbol">—</span>
+                </div>
+                <!-- Balance lives on the LCD itself, as on the real PSR-S770 -->
+                <div class="balance-bar" aria-label="balance">
+                  <div class="bal-header">Balance</div>
+                  <div class="bal-faders">
+                    <div class="bal-fader"><div class="bal-track"><div class="bal-handle" style="bottom:80%"></div></div><div class="bal-label">R1</div></div>
+                    <div class="bal-fader"><div class="bal-track"><div class="bal-handle" style="bottom:75%"></div></div><div class="bal-label">R2</div></div>
+                    <div class="bal-fader"><div class="bal-track"><div class="bal-handle" style="bottom:60%"></div></div><div class="bal-label">Left</div></div>
+                    <div class="bal-fader"><div class="bal-track"><div class="bal-handle" style="bottom:70%"></div></div><div class="bal-label">Mic</div></div>
+                    <div class="bal-fader"><div class="bal-track"><div class="bal-handle" style="bottom:70%"></div></div><div class="bal-label">M.Pad</div></div>
+                    <div class="bal-fader"><div class="bal-track"><div class="bal-handle" style="bottom:70%"></div></div><div class="bal-label">Style</div></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- settings view: scrollable inner so MKD bounds stay sacred -->
+              <div class="display-view" id="view-settings" hidden>
+                <div class="settings-scroll">
+                  <div class="settings-header">Settings · Volumes</div>
+                  <div class="vol-grid">
+                    <label for="vol-melody">Melody</label>
+                    <input type="range" id="vol-melody" min="0" max="100" value="100" />
+                    <span class="vol-val" id="vol-melody-val">100%</span>
+
+                    <label for="vol-chord">Chord</label>
+                    <input type="range" id="vol-chord" min="0" max="100" value="55" />
+                    <span class="vol-val" id="vol-chord-val">55%</span>
+
+                    <label for="vol-styles">Styles</label>
+                    <input type="range" id="vol-styles" min="0" max="100" value="90" />
+                    <span class="vol-val" id="vol-styles-val">90%</span>
+
+                    <label for="vol-master">Master</label>
+                    <input type="range" id="vol-master" min="0" max="100" value="60" />
+                    <span class="vol-val" id="vol-master-val">60%</span>
+
+                    <label for="sens-pitch">Pitch bend range</label>
+                    <input type="range" id="sens-pitch" min="1" max="12" value="2" />
+                    <span class="vol-val" id="sens-pitch-val">2 st</span>
+                  </div>
+
+                  <div class="settings-divider"></div>
+
+                  <div class="settings-header">Melody</div>
+                  <label class="toggle-row">
+                    <input type="checkbox" id="melody-enabled" checked />
+                    12-note keyboard melody
+                  </label>
+
+                  <div class="settings-divider"></div>
+
+                  <div class="settings-header">Chord-section layout</div>
+                  <div class="chord-map-hint">
+                    Press a physical key to highlight it · Click a key to cycle its chord
+                  </div>
+                  <div class="chord-map-grid" id="chord-map-grid"></div>
+
+                  <div class="settings-actions">
+                    <button class="reset-btn" id="reset-btn">↺ Factory reset</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right soft-key column (F G H I J) — frames the LCD as on PSR-S770 -->
+            <div class="soft-col right" aria-label="right soft keys">
+              <button class="soft-btn" data-soft="F">F</button>
+              <button class="soft-btn" data-soft="G">G</button>
+              <button class="soft-btn" data-soft="H">H</button>
+              <button class="soft-btn" data-soft="I">I</button>
+              <button class="soft-btn" data-soft="J">J</button>
+            </div>
+
+            <!-- DATA wheel + ENTER + EXIT cluster, right of MKD as on PSR-S770 -->
+            <div class="data-cluster">
+              <div class="data-wheel" aria-label="data wheel">
+                <div class="data-wheel-disc"></div>
+                <div class="data-wheel-label">DATA</div>
+              </div>
+              <div class="data-indicator" id="enter-indicator" aria-hidden="true">ENTER</div>
+              <button class="data-btn" id="exit-btn">EXIT</button>
+            </div>
+          </div>
+
+          <!-- 8 up-arrow soft buttons (top row of 16). Tab+Shift+numpad 1-8. -->
+          <div class="soft-row-below" aria-label="navigation up keys">
+            <button class="nav-btn nav-up" data-nav="1">▲</button>
+            <button class="nav-btn nav-up" data-nav="2">▲</button>
+            <button class="nav-btn nav-up" data-nav="3">▲</button>
+            <button class="nav-btn nav-up" data-nav="4">▲</button>
+            <button class="nav-btn nav-up" data-nav="5">▲</button>
+            <button class="nav-btn nav-up" data-nav="6">▲</button>
+            <button class="nav-btn nav-up" data-nav="7">▲</button>
+            <button class="nav-btn nav-up" data-nav="8">▲</button>
+          </div>
+
+          <!-- 8 down-arrow soft buttons (bottom row of 16). Tab+numpad 1-8. -->
+          <div class="soft-row-below" aria-label="navigation down keys">
+            <button class="nav-btn nav-dn" data-nav="1">▼</button>
+            <button class="nav-btn nav-dn" data-nav="2">▼</button>
+            <button class="nav-btn nav-dn" data-nav="3">▼</button>
+            <button class="nav-btn nav-dn" data-nav="4">▼</button>
+            <button class="nav-btn nav-dn" data-nav="5">▼</button>
+            <button class="nav-btn nav-dn" data-nav="6">▼</button>
+            <button class="nav-btn nav-dn" data-nav="7">▼</button>
+            <button class="nav-btn nav-dn" data-nav="8">▼</button>
+          </div>
+
+          <!-- 8 registration buttons: still centered under MKD -->
           <div class="registration-row" aria-label="registration memory">
             <button class="reg-btn" data-reg="1">1</button>
             <button class="reg-btn" data-reg="2">2</button>
@@ -81,22 +211,49 @@
             <button class="reg-btn" data-reg="7">7</button>
             <button class="reg-btn" data-reg="8">8</button>
           </div>
+        </div>
 
-          <div class="function-bar">
+        <!-- ============= RIGHT BANK: Voices + Function + Voice FX ============= -->
+        <aside class="side-bank side-right" aria-label="voices bank">
+          <div class="bank-section">
+            <div class="bank-header">Voices</div>
+            <div class="cat-grid" id="voice-categories">
+              <button class="cat-btn">Piano</button>
+              <button class="cat-btn">E.Piano</button>
+              <button class="cat-btn">Organ</button>
+              <button class="cat-btn">Guitar</button>
+              <button class="cat-btn">Bass</button>
+              <button class="cat-btn">Strings</button>
+              <button class="cat-btn">Brass</button>
+              <button class="cat-btn">Woodwind</button>
+              <button class="cat-btn">Sax/Flt</button>
+              <button class="cat-btn">Synth</button>
+              <button class="cat-btn">Drums</button>
+              <button class="cat-btn">User</button>
+            </div>
+          </div>
+
+          <div class="bank-section">
+            <div class="bank-header">Voice Effect</div>
+            <div class="fx-grid">
+              <button class="fx-btn">Hrm/Ech</button>
+              <button class="fx-btn">Touch</button>
+              <button class="fx-btn">Sustain</button>
+              <button class="fx-btn">Mono</button>
+              <button class="fx-btn">DSP</button>
+              <button class="fx-btn">Vari</button>
+            </div>
+          </div>
+
+          <!-- Function button (= TAB key) at the bottom of the right bank -->
+          <div class="function-slot">
             <button class="function-btn" id="function-btn">⚙ Function</button>
           </div>
-        </div>
-
-        <div class="side-panel side-right" aria-label="voices">
-          <div class="side-header">Voices</div>
-          <div class="side-content">—</div>
-        </div>
+        </aside>
       </div>
 
       <div class="hint">
-        <div><kbd>H J K L ; '</kbd> &nbsp;and&nbsp; <kbd>N M , . /</kbd> &nbsp;— melody (C through A#)</div>
-        <div><kbd>A B C D E F G</kbd> &nbsp;and&nbsp; <kbd>W V R T Y</kbd> &nbsp;— chord roots &nbsp;·&nbsp; <kbd>Alt</kbd> 7 &nbsp; <kbd>Alt+Shift</kbd> m7 &nbsp; <kbd>Ctrl</kbd> minor &nbsp; <kbd>Ctrl+Shift</kbd> m7 &nbsp; <kbd>Ctrl+Shift+Alt</kbd> mM7</div>
-        <div><kbd>]</kbd> octave up &nbsp; <kbd>\</kbd> octave down &nbsp; <kbd>Esc</kbd> quit</div>
+        <div><kbd>H J K L ; '</kbd>&nbsp;and&nbsp;<kbd>N M , . /</kbd>&nbsp;— melody (C through A#) &nbsp;·&nbsp; <kbd>]</kbd>&nbsp;<kbd>\</kbd>&nbsp;octave &nbsp;·&nbsp; <kbd>A B C D E F G</kbd>&nbsp;and&nbsp;<kbd>W V R T Y</kbd>&nbsp;chord roots &nbsp;·&nbsp; <kbd>Alt</kbd>&nbsp;7 &nbsp;<kbd>Ctrl</kbd>&nbsp;min &nbsp;<kbd>+Shift</kbd>&nbsp;m7/mM7 &nbsp;·&nbsp; <kbd>Esc</kbd>&nbsp;quit</div>
       </div>
 
       <footer id="status">starting…</footer>
